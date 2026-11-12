@@ -1,23 +1,44 @@
+import time
+
 import secrets, hashlib, base64
-from urllib.parse import urlencode
+
+from urllib.parse import urlencode, urlparse, parse_qs
 from http.server import HTTPServer, BaseHTTPRequestHandler
-import requests
+import webbrowser
 
 import json
 
 REDIRECT_URI = "http://127.0.0.1:8888/callback"
 SCOPES = "playlist-read-private"
 
+def createHTTPServer():
+    class RequestHandler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            parsedURL = urlparse(self.path)
+
+            if parsedURL.path != "/callback":
+                self.send_response(404)
+                self.end_headers()
+                return
+
+            self.send_response(200)
+            self.end_headers()
+            self.server.result = parsedURL.query
+
+    server = HTTPServer(("127.0.0.1", 8888), RequestHandler)
+    server.result = {}
+    return server
+
 def login():
     verifier = secrets.token_urlsafe(64);
     challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b'=').decode()
     state = secrets.token_urlsafe(16)
 
-    with open("./client-creds.json") as f:
+    with open("client-creds.json", 'r') as f:
         clientCreds = json.load(f)
 
     params = {
-        "client_id" : clientCreds("client-id"),
+        "client_id" : clientCreds["client-id"],
         "response_type" : 'code',
         "redirect_uri" : REDIRECT_URI,
         "state" : state,
@@ -28,7 +49,18 @@ def login():
 
     url = "https://accounts.spotify.com/authorize?" + urlencode(params)
 
+    server = createHTTPServer()
+    server.timeout = 1
     
+    webbrowser.open(url)
+    deadline = time.time() + 180
+    
+    while not server.result and time.time() < deadline:
+        server.handle_request()
+
+    server.server_close()
+
+    print(server.result)
 
 
 
@@ -60,6 +92,4 @@ def getSpotifyPlaylists(accessToken):
     return response.json()
 
 if __name__ == "__main__":
-    token = getAccessToken(clientid, clientSecret)
-    spotifyPlaylists = getSpotifyPlaylists(token)
-    print(spotifyPlaylists)
+    login()
