@@ -6,7 +6,8 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 
 import json
 
-REDIRECT_URI = "http://127.0.0.1:8888/callback"
+API_URL = "https://api.spotify.com/v1"
+REDIRECT_URL = "http://127.0.0.1:8888/callback"
 SCOPES = "playlist-read-private"
 
 def importCredentials():
@@ -52,7 +53,7 @@ def getTokens(clientid, codeVerifier = None, code = None, refreshToken = None):
         body = {
             "grant_type" : "authorization_code",
             "code" : code,
-            "redirect_uri" : REDIRECT_URI,
+            "redirect_uri" : REDIRECT_URL,
             "client_id" : clientid,
             "code_verifier" : codeVerifier
         }
@@ -83,7 +84,6 @@ def getTokens(clientid, codeVerifier = None, code = None, refreshToken = None):
 
     return tokens
 
-
 def login(clientid):
     verifier = secrets.token_urlsafe(64);
     challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b'=').decode()
@@ -92,7 +92,7 @@ def login(clientid):
     params = {
         "client_id" : clientid,
         "response_type" : 'code',
-        "redirect_uri" : REDIRECT_URI,
+        "redirect_uri" : REDIRECT_URL,
         "state" : state,
         "scope" : SCOPES,
         "code_challenge_method" : "S256",
@@ -125,17 +125,63 @@ def login(clientid):
 
     return tokens
 
-def getPlaylists(tokens):
-    if tokens["expiry"] - time.time() > 60:
-        getTokens(clientid=credentials["client-id"], refreshToken=tokens["refreshToken"])
+def apiGet(token, path = None, url = None, params = None):
+    # if credentials["tokens"]["expiry"] - time.time() > 60:
+    #     getTokens(clientid=credentials["client-id"], refreshToken=credentials["tokens"]["refreshToken"])
 
-    url = "https://api.spotify.com/v1/me/playlists"
-    header = {"Authorization": f"Bearer {tokens["accessToken"]}"}
+    if (path == None and url == None) or (path != None and url != None):
+        raise ValueError("Specify only one of path or url")
 
-    response = requests.get(url, headers=header)
+    if path:
+        url = API_URL + path
+    
+    header = {"Authorization": f"Bearer {token}"}
+
+    response = requests.get(url, headers=header, params=params)
     response.raise_for_status()
 
-    return response.json()
+    return response
+
+def getMyId(token):
+    path = "/me"
+    return apiGet(token, path=path).json()["id"]
+
+def parsePlaylists(response, myid):
+    playlists = []
+    for playlist in response.json()["items"]:
+        if playlist["owner"]["id"] == myid:
+            playlists.append({
+                "name" : playlist["name"],
+                "href" : playlist["href"],
+                "public" : playlist["public"],
+                "collaborative" : playlist["collaborative"],
+                "description" : playlist["description"],
+            })
+
+    return playlists
+
+def getPlaylists(token):
+    path = "/me/playlists"
+    params = {
+        "limit" : 20,
+        "offset" : 0
+    }
+
+    myid = getMyId(token)
+
+    response = apiGet(token, path=path, params=params)
+
+    playlists = []
+
+    playlists += parsePlaylists(response, myid)
+
+    while response.json()["next"]:
+        response = apiGet(token, url=response.json()["next"])
+        response.raise_for_status()
+        playlists += parsePlaylists(response, myid)
+        
+
+    return playlists
 
 if __name__ == "__main__":
     credentials = importCredentials()
@@ -152,5 +198,9 @@ if __name__ == "__main__":
 
     credentials["tokens"] = tokens
     pprint(tokens)
+
+    playlists = getPlaylists(tokens["accessToken"])
+
+    pprint(playlists)
 
     exportCredentials(credentials)
