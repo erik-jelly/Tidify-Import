@@ -4,7 +4,7 @@ import secrets, hashlib, base64
 
 from urllib.parse import urlencode, urlparse, parse_qs
 from http.server import HTTPServer, BaseHTTPRequestHandler
-import webbrowser
+import webbrowser, requests
 
 import json
 
@@ -23,11 +23,34 @@ def createHTTPServer():
 
             self.send_response(200)
             self.end_headers()
-            self.server.result = parsedURL.query
+            self.wfile.write(b"Done! You can close this page now.")
+            self.server.result = {k : v[0] for k, v in parse_qs(parsedURL.query).items()}
 
     server = HTTPServer(("127.0.0.1", 8888), RequestHandler)
     server.result = {}
     return server
+
+def getTokens(codeVerifier, code, clientid):
+    url = "https://accounts.spotify.com/api/token"
+    header = {"Content-Type": "application/x-www-form-urlencoded"}
+    body = {
+        "grant_type" : "authorization_code",
+        "code" : code,
+        "redirect_uri" : REDIRECT_URI,
+        "client_id" : clientid,
+        "code_verifier" : codeVerifier
+    }
+
+    response = requests.post(url, headers=header, data=body)
+    response.raise_for_status()
+
+    tokens = {
+        "accessToken" : response.json()["access_token"],
+        "refreshToken" : response.json()["refresh_token"],
+        "expiry" : time.time() + response.json()["expires_in"]
+    }
+
+    return tokens
 
 def login():
     verifier = secrets.token_urlsafe(64);
@@ -62,25 +85,8 @@ def login():
 
     print(server.result)
 
-
-
-
-def getAccessToken(id, secret):
-    url = "https://accounts.spotify.com/api/token"
-    header = {"Content-Type": "application/x-www-form-urlencoded"}
-    data = {
-        "grant_type": "client_credentials",
-        # "client_id": id,
-        # "client_secret": secret
-    }
-    auth = (id, secret)
-
-    response = requests.post(url, headers=header, data=data, auth=auth)
-    response.raise_for_status()
-    print(response.json())
-    token = response.json()["access_token"]
-
-    return token
+    tokens = getTokens(verifier, server.result["code"], clientCreds["client-id"])
+    print(tokens)
 
 def getSpotifyPlaylists(accessToken):
     url = "https://api.spotify.com/v1/me/playlists"
