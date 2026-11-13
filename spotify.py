@@ -1,4 +1,5 @@
 import time, sys, secrets, hashlib, base64, webbrowser, requests
+from pprint import pprint
 
 from urllib.parse import urlencode, urlparse, parse_qs
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -16,7 +17,7 @@ def importCredentials():
 
 def exportCredentials(credentials):
     with open("credentials.json", 'w') as f:
-        json.dump(credentials)
+        json.dump(credentials, f, indent=4)
     
 def createHTTPServer():
     class RequestHandler(BaseHTTPRequestHandler):
@@ -59,25 +60,37 @@ def getTokens(clientid, codeVerifier = None, code = None, refreshToken = None):
     response = requests.post(url, headers=header, data=body)
     response.raise_for_status()
 
-    if response.json()["error"] == "invalid_grant":
-        return None
+    if "error" in response.json():
+        if response.json()["error"] == "invalid_grant":
+            return None
+        else:
+            sys.exit(f"Error - {response.json()["error"]} - exiting program.")
 
-    tokens = {
-        "accessToken" : response.json()["access_token"],
-        "refreshToken" : response.json()["refresh_token"],
-        "expiry" : time.time() + response.json()["expires_in"]
-    }
+    pprint(response.json())
+
+    if refreshToken:
+        tokens = {
+            "accessToken" : response.json()["access_token"],
+            "refreshToken" : refreshToken,
+            "expiry" : time.time() + response.json()["expires_in"]
+        }
+    else:
+        tokens = {
+            "accessToken" : response.json()["access_token"],
+            "refreshToken" : response.json()["refresh_token"],
+            "expiry" : time.time() + response.json()["expires_in"]
+        }
 
     return tokens
 
 
-def login(credentials):
+def login(clientid):
     verifier = secrets.token_urlsafe(64);
     challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b'=').decode()
     state = secrets.token_urlsafe(16)
 
     params = {
-        "client_id" : credentials["client-id"],
+        "client_id" : clientid,
         "response_type" : 'code',
         "redirect_uri" : REDIRECT_URI,
         "state" : state,
@@ -99,16 +112,16 @@ def login(credentials):
 
     server.server_close()
 
-    if not server.results:
+    if not server.result:
         sys.exit("Login failed - exiting program")
 
-    if "error" in server.results:
-        sys.exit(f"Login failed - {server.results["error"]} - exiting program.\n")
+    if "error" in server.result:
+        sys.exit(f"Login failed - {server.result["error"]} - exiting program.\n")
 
-    if secrets.compare_digest(server.result["state"], state):
+    if not secrets.compare_digest(server.result["state"], state):
         sys.exit("State mismatch - exiting program.\n")
 
-    tokens = getTokens(credentials["client-id"], codeVerifier=verifier, code=server.result["code"])
+    tokens = getTokens(clientid, codeVerifier=verifier, code=server.result["code"])
 
     return tokens
 
@@ -126,16 +139,18 @@ def getPlaylists(tokens):
 
 if __name__ == "__main__":
     credentials = importCredentials()
-    clientid = credentials["clientid"]
+    clientid = credentials["client-id"]
     tokens = credentials["tokens"]
 
     if tokens["expiry"] == None or tokens["expiry"] - time.time() < 60:
         if tokens["expiry"] == None:
-            tokens = login()
-        tokens = getTokens(clientid=clientid, refreshToken=tokens["refreshToken"])
-        if tokens == None:
-            tokens = login()
+            tokens = login(clientid)
+        else:
+            tokens = getTokens(clientid=clientid, refreshToken=tokens["refreshToken"])
+            if tokens == None:
+                tokens = login(clientid)
 
-        credentials["tokens"] = tokens
+    credentials["tokens"] = tokens
+    pprint(tokens)
 
     exportCredentials(credentials)
