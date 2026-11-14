@@ -67,7 +67,7 @@ def getTokens(clientid, codeVerifier = None, code = None, refreshToken = None):
         else:
             sys.exit(f"Error - {response.json()["error"]} - exiting program.")
 
-    pprint(response.json())
+    #pprint(response.json())
 
     if refreshToken:
         tokens = {
@@ -177,16 +177,43 @@ def getPlaylists(token):
 
     while response.json()["next"]:
         response = apiGet(token, url=response.json()["next"])
-        response.raise_for_status()
         playlists += parsePlaylists(response, myid)
         
 
     return playlists
 
+def parseSongs(response):
+    songs = []
+    for song in response.json()["items"]:
+        songs.append({
+            "name" : song["item"]["name"],
+            "artists" : [artist["name"] for artist in song["item"]["artists"]],
+            "isrc" : song["item"]["external_ids"]["isrc"]
+        })
+
+    return songs
+
+
+def getSongs(token, playlist):
+    songs = []
+
+    response = apiGet(token, url=f"{playlist["href"]}/items")
+
+    songs += parseSongs(response)
+
+    while response.json()["next"]:
+        response = apiGet(token, url=response.json()["next"])
+        response.raise_for_status()
+        songs += parseSongs(response)
+
+    return songs
+
 if __name__ == "__main__":
     credentials = importCredentials()
     clientid = credentials["client-id"]
     tokens = credentials["tokens"]
+
+    print("Authenticating User...", end="", flush=True)
 
     if tokens["expiry"] == None or tokens["expiry"] - time.time() < 60:
         if tokens["expiry"] == None:
@@ -197,10 +224,16 @@ if __name__ == "__main__":
                 tokens = login(clientid)
 
     credentials["tokens"] = tokens
-    pprint(tokens)
+
+    print(f"\r\033[K{"Authentication Complete"}")
+    #pprint(tokens)
+
+    print("Getting Spotify Playlists...", end="", flush=True)
 
     playlists = getPlaylists(tokens["accessToken"])
+    
+    print(f"\r\033[K{"Spotify Playlists Retrieved!"}")
 
-    pprint(playlists)
+    songs = getSongs(tokens["accessToken"], playlists[1])
 
     exportCredentials(credentials)
