@@ -3,8 +3,6 @@ import oauth, creds
 import time, requests
 from pprint import pprint
 
-import json
-
 API_URL = "https://api.spotify.com/v1"
 
 def apiGet(token, path = None, url = None, params = None):
