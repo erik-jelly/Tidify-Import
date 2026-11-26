@@ -1,3 +1,9 @@
+# Copyright (C) 2026 Erik Jelezarov (@erik-jelly)
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# This file is part of Tidify-Import, licensed under the GNU GPL v3 or later.
+# See the LICENSE file in the project root for details.
+
 import oauth, creds
 
 import time, requests, random, json
